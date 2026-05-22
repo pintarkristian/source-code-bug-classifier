@@ -25,5 +25,5 @@ class PredictionResponse(BaseModel):
 class HealthResponse(BaseModel):
     """Health-check response."""
 
-    status: Literal["ok"] = "ok"
+    status: Literal["ok", "degraded"]
     model_loaded: bool

@@ -36,13 +36,22 @@ def test_predictor_notes_division_without_obvious_zero_check(tmp_path) -> None:
     assert any("division-by-zero" in note for note in result["notes"])
 
 
-def test_predictor_does_not_note_division_when_zero_check_exists(tmp_path) -> None:
+def test_predictor_does_not_note_division_when_non_zero_check_exists(tmp_path) -> None:
     predictor = CodeBugPredictor(model_dir=tmp_path / "missing-model")
 
-    code = "def divide(a, b):\n    if b == 0:\n        return None\n    return a / b"
+    code = "def divide(a, b):\n    if b != 0:\n        return a / b\n    return None"
     result = predictor.predict(code)
 
     assert not any("division-by-zero" in note for note in result["notes"])
+
+
+def test_predictor_still_notes_division_after_zero_equality_check(tmp_path) -> None:
+    predictor = CodeBugPredictor(model_dir=tmp_path / "missing-model")
+
+    code = "def divide(a, b):\n    if b == 0:\n        log_error('zero')\n    return a / b"
+    result = predictor.predict(code)
+
+    assert any("division-by-zero" in note for note in result["notes"])
 
 
 def test_predictor_rejects_blank_code(tmp_path) -> None:
@@ -50,3 +59,29 @@ def test_predictor_rejects_blank_code(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="code must not be blank"):
         predictor.predict("   ")
+
+
+def test_predictor_ignores_division_patterns_in_comments_and_strings(tmp_path) -> None:
+    predictor = CodeBugPredictor(model_dir=tmp_path / "missing-model")
+
+    code = """
+# docs: divide with a / b
+message = "https://example.com/a/b"
+print("division a / b in docs")
+return safe_value
+"""
+    result = predictor.predict(code)
+
+    assert not any("division-by-zero" in note for note in result["notes"])
+
+
+def test_predictor_ignores_division_patterns_in_block_comments(tmp_path) -> None:
+    predictor = CodeBugPredictor(model_dir=tmp_path / "missing-model")
+
+    code = """
+/* denominator in docs: a / b */
+int value = 42;
+"""
+    result = predictor.predict(code)
+
+    assert not any("division-by-zero" in note for note in result["notes"])
