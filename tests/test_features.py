@@ -106,3 +106,20 @@ def test_extract_features_dataframe_raises_for_missing_code_column() -> None:
 
     with pytest.raises(KeyError, match="Missing required code column"):
         extract_features_dataframe(df)
+
+
+def test_control_flow_and_suspicious_keywords_ignore_comments_and_strings() -> None:
+    code = """
+# for if while try except eval os.system
+message = "for if while eval os.system"
+text = 'try except shell=True input'
+/* switch case catch finally subprocess */
+real = safe_value
+"""
+    features = extract_features_from_code(code)
+
+    assert features["loop_count"] == 0
+    assert features["conditional_count"] == 0
+    assert features["try_except_count"] == 0
+    assert features["suspicious_keyword_count"] == 0
+    assert features["function_call_count"] == 0
