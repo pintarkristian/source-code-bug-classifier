@@ -168,6 +168,29 @@ def predict_tensorflow(model_path: Path, code_snippets: list[str]) -> tuple[np.n
     return probabilities, labels
 
 
+def normalize_transformer_logits(raw_logits: Any) -> np.ndarray:
+    """Normalize Transformer logits to positive-class probabilities."""
+    logits = np.asarray(raw_logits)
+
+    if logits.ndim == 1:
+        logits = logits.reshape(1, -1)
+
+    if logits.ndim != 2:
+        raise ValueError(f"Unsupported Transformer logits shape: {logits.shape}")
+
+    if logits.shape[1] == 1:
+        positive_probabilities = 1.0 / (1.0 + np.exp(-logits[:, 0]))
+    elif logits.shape[1] == 2:
+        positive_probabilities = stable_softmax(logits)[:, 1]
+    else:
+        raise ValueError(
+            "Transformer model must output either one logit or two class logits; "
+            f"received shape {logits.shape}"
+        )
+
+    return np.clip(positive_probabilities.astype(float), 0.0, 1.0)
+
+
 def predict_transformer(
     model_dir: Path,
     code_snippets: list[str],
@@ -207,9 +230,11 @@ def predict_transformer(
 
         with torch.no_grad():
             outputs = model(**encoded_batch)
-            probabilities = torch.softmax(outputs.logits, dim=1)[:, 1]
+            probabilities = normalize_transformer_logits(
+                outputs.logits.detach().cpu().numpy()
+            )
 
-        all_probabilities.append(probabilities.detach().cpu().numpy())
+        all_probabilities.append(probabilities)
 
     positive_probabilities = np.concatenate(all_probabilities).astype(float)
     predicted_labels = probabilities_to_labels(positive_probabilities)

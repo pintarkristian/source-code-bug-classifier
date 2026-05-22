@@ -90,6 +90,17 @@ def _line_values(code: str) -> list[str]:
     return code.splitlines() if code else []
 
 
+def _strip_strings_and_comments(code: str) -> str:
+    """Return code with common comments and string literals removed."""
+    text = _safe_code(code)
+    text = re.sub(r'"""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\'', " ", text)
+    text = re.sub(r"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'", " ", text)
+    text = re.sub(r"/\*[\s\S]*?\*/", " ", text)
+    text = re.sub(r"//.*", " ", text)
+    text = re.sub(r"#.*", " ", text)
+    return text
+
+
 def _is_definition_call(match: re.Match[str], code: str) -> bool:
     """Return True when a call-like token is part of a function definition."""
     prefix = code[max(0, match.start() - 12) : match.start()].lower()
@@ -109,9 +120,9 @@ def _count_function_calls(code: str) -> int:
 
 
 def count_suspicious_keywords(code: str) -> int:
-    """Count occurrences of risky keywords and API patterns in a code snippet."""
-    text = _safe_code(code)
-    return sum(len(pattern.findall(text)) for pattern in _SUSPICIOUS_PATTERNS)
+    """Count occurrences of risky keywords and API patterns in executable code."""
+    searchable_text = _strip_strings_and_comments(code)
+    return sum(len(pattern.findall(searchable_text)) for pattern in _SUSPICIOUS_PATTERNS)
 
 
 def extract_features_from_code(code: str) -> dict[str, int | float]:
@@ -141,20 +152,32 @@ def extract_features_from_code(code: str) -> dict[str, int | float]:
         if line.startswith(("#", "//", "/*", "*", "--"))
     )
 
+    searchable_text = _strip_strings_and_comments(text)
+
     features: Mapping[str, int | float] = {
         "char_count": len(text),
         "line_count": line_count,
         "avg_line_length": total_line_length / line_count if line_count else 0.0,
-        "function_call_count": _count_function_calls(text),
-        "loop_count": len(re.findall(r"\b(for|while)\b", text, flags=re.IGNORECASE)),
+        "function_call_count": _count_function_calls(searchable_text),
+        "loop_count": len(
+            re.findall(r"\b(for|while)\b", searchable_text, flags=re.IGNORECASE)
+        ),
         "conditional_count": len(
-            re.findall(r"\b(if|elif|else|switch|case)\b", text, flags=re.IGNORECASE)
+            re.findall(
+                r"\b(if|elif|else|switch|case)\b",
+                searchable_text,
+                flags=re.IGNORECASE,
+            )
         ),
         "try_except_count": len(
-            re.findall(r"\b(try|except|catch|finally)\b", text, flags=re.IGNORECASE)
+            re.findall(
+                r"\b(try|except|catch|finally)\b",
+                searchable_text,
+                flags=re.IGNORECASE,
+            )
         ),
         "comment_line_count": comment_line_count,
-        "suspicious_keyword_count": count_suspicious_keywords(text),
+        "suspicious_keyword_count": count_suspicious_keywords(searchable_text),
     }
     return dict(features)
 
