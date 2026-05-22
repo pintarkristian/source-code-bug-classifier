@@ -85,20 +85,25 @@ def infer_code_and_label_columns(dataframe: pd.DataFrame) -> tuple[str, str]:
 
 def normalize_columns(
     dataframe: pd.DataFrame,
-    code_column: str | None = "code",
-    label_column: str | None = "label",
+    code_column: str | None = None,
+    label_column: str | None = None,
 ) -> pd.DataFrame:
     """Normalize arbitrary input columns to exactly ``code`` and ``label``.
 
-    If either requested column is absent, the function falls back to inference
-    using common names such as ``func``/``target`` for CodeXGLUE.
+    Passing ``None`` for a column enables inference using common names such as
+    ``func``/``target`` for CodeXGLUE. Explicit column names must exist so typos
+    are not silently replaced by inferred alternatives.
     """
-    if code_column not in dataframe.columns or label_column not in dataframe.columns:
+    if code_column is None or label_column is None:
         inferred_code, inferred_label = infer_code_and_label_columns(dataframe)
-        code_column = inferred_code if code_column not in dataframe.columns else code_column
-        label_column = inferred_label if label_column not in dataframe.columns else label_column
+        code_column = inferred_code if code_column is None else code_column
+        label_column = inferred_label if label_column is None else label_column
 
-    missing = [column for column in (code_column, label_column) if column not in dataframe.columns]
+    missing = [
+        column
+        for column in (code_column, label_column)
+        if column not in dataframe.columns
+    ]
     if missing:
         raise KeyError(f"Missing required columns: {missing}")
 
@@ -150,6 +155,8 @@ def clean_dataset(
         raise ValueError("min_code_length must be non-negative")
     if max_code_length <= 0:
         raise ValueError("max_code_length must be positive")
+    if max_code_length < min_code_length:
+        raise ValueError("max_code_length must be greater than or equal to min_code_length")
 
     cleaned = dataframe.copy()
     cleaned = cleaned.dropna(subset=["code", "label"])
@@ -159,7 +166,17 @@ def clean_dataset(
     cleaned["label"] = cleaned["label"].astype(int)
     cleaned = cleaned[cleaned["code"].str.len() >= min_code_length]
     cleaned["code"] = cleaned["code"].str.slice(0, max_code_length)
-    cleaned = cleaned.drop_duplicates(subset=["code"], keep="first")
+
+    label_counts_by_code = cleaned.groupby("code")["label"].nunique()
+    conflicting_codes = label_counts_by_code[label_counts_by_code > 1]
+    if not conflicting_codes.empty:
+        examples = ", ".join(repr(code) for code in conflicting_codes.index[:3])
+        raise ValueError(
+            "Conflicting labels found for duplicate code snippets: "
+            f"{examples}. Resolve duplicate labels before preprocessing."
+        )
+
+    cleaned = cleaned.drop_duplicates(subset=["code", "label"], keep="first")
     cleaned = cleaned[["code", "label"]]
     return cleaned.reset_index(drop=True)
 
@@ -279,6 +296,10 @@ def split_dataset(
     """
     if dataframe.empty:
         raise ValueError("Cannot split an empty dataframe")
+    if len(dataframe) < 3:
+        raise ValueError(
+            "Cannot create train, validation, and test splits with fewer than 3 rows"
+        )
     if any(size <= 0 for size in (train_size, valid_size, test_size)):
         raise ValueError("train_size, valid_size, and test_size must all be positive")
     if abs((train_size + valid_size + test_size) - 1.0) > 1e-6:
@@ -348,8 +369,8 @@ def save_splits(
 def preprocess_dataframe(
     dataframe: pd.DataFrame,
     output_dir: str | Path,
-    code_column: str | None = "code",
-    label_column: str | None = "label",
+    code_column: str | None = None,
+    label_column: str | None = None,
     min_code_length: int = MIN_CODE_LENGTH,
     max_code_length: int = MAX_CODE_LENGTH,
     train_size: float = 0.80,
@@ -358,7 +379,11 @@ def preprocess_dataframe(
     random_state: int = DEFAULT_RANDOM_STATE,
 ) -> dict[str, Path]:
     """Normalize, clean, split, and save a dataframe."""
-    normalized = normalize_columns(dataframe, code_column=code_column, label_column=label_column)
+    normalized = normalize_columns(
+        dataframe,
+        code_column=code_column,
+        label_column=label_column,
+    )
     cleaned = clean_dataset(
         normalized,
         min_code_length=min_code_length,
@@ -380,8 +405,8 @@ def preprocess_dataset(
     hf_dataset: str | None = None,
     hf_config: str | None = None,
     hf_split: str | None = None,
-    code_column: str | None = "code",
-    label_column: str | None = "label",
+    code_column: str | None = None,
+    label_column: str | None = None,
     min_code_length: int = MIN_CODE_LENGTH,
     max_code_length: int = MAX_CODE_LENGTH,
     train_size: float = 0.80,
@@ -413,8 +438,8 @@ def preprocess_dataset(
 def preprocess_file(
     input_path: str | Path,
     output_dir: str | Path,
-    code_column: str | None = "code",
-    label_column: str | None = "label",
+    code_column: str | None = None,
+    label_column: str | None = None,
     random_state: int = DEFAULT_RANDOM_STATE,
     max_code_length: int = MAX_CODE_LENGTH,
 ) -> dict[str, Path]:
@@ -450,8 +475,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Optional Hugging Face split to load before creating project splits.",
     )
     parser.add_argument("--output-dir", type=Path, default=get_settings().processed_data_dir)
-    parser.add_argument("--code-column", default="code")
-    parser.add_argument("--label-column", default="label")
+    parser.add_argument(
+        "--code-column",
+        default=None,
+        help="Optional explicit code column name; omitted means infer.",
+    )
+    parser.add_argument(
+        "--label-column",
+        default=None,
+        help="Optional explicit label column name; omitted means infer.",
+    )
     parser.add_argument("--min-code-length", type=int, default=MIN_CODE_LENGTH)
     parser.add_argument("--max-code-length", type=int, default=MAX_CODE_LENGTH)
     parser.add_argument("--train-size", type=float, default=0.80)
