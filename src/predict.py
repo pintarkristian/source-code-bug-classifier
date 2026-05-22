@@ -227,12 +227,24 @@ class CodeBugPredictor:
 
         return notes
 
+    @staticmethod
+    def _strip_strings_and_comments(code: str) -> str:
+        """Remove common string literals and comments before regex heuristics."""
+        text = code
+        text = re.sub(r"""\"\"\"[\s\S]*?\"\"\"|'''[\s\S]*?'''""", ' ', text)
+        text = re.sub(r"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'", ' ', text)
+        text = re.sub(r'/\*[\s\S]*?\*/', ' ', text)
+        text = re.sub(r'//.*', ' ', text)
+        text = re.sub(r'#.*', ' ', text)
+        return text
+
     @classmethod
     def _find_division_without_zero_check(cls, code: str) -> str | None:
         """Return a denominator variable that lacks an obvious zero check, if any."""
-        for match in DIVISION_BY_VARIABLE_PATTERN.finditer(code):
+        searchable_code = cls._strip_strings_and_comments(code)
+        for match in DIVISION_BY_VARIABLE_PATTERN.finditer(searchable_code):
             denominator = match.group(1)
-            if not cls._has_obvious_zero_check(code, denominator):
+            if not cls._has_obvious_zero_check(searchable_code, denominator):
                 return denominator
         return None
 

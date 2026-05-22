@@ -59,3 +59,29 @@ def test_predictor_rejects_blank_code(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="code must not be blank"):
         predictor.predict("   ")
+
+
+def test_predictor_ignores_division_patterns_in_comments_and_strings(tmp_path) -> None:
+    predictor = CodeBugPredictor(model_dir=tmp_path / "missing-model")
+
+    code = """
+# docs: divide with a / b
+message = "https://example.com/a/b"
+print("division a / b in docs")
+return safe_value
+"""
+    result = predictor.predict(code)
+
+    assert not any("division-by-zero" in note for note in result["notes"])
+
+
+def test_predictor_ignores_division_patterns_in_block_comments(tmp_path) -> None:
+    predictor = CodeBugPredictor(model_dir=tmp_path / "missing-model")
+
+    code = """
+/* denominator in docs: a / b */
+int value = 42;
+"""
+    result = predictor.predict(code)
+
+    assert not any("division-by-zero" in note for note in result["notes"])
