@@ -1,4 +1,4 @@
-# AI-Powered Code Bug Classifier
+# Source Code Bug Classifier
 
 > An end-to-end Machine Learning and AI project that classifies source-code snippets as **clean** or **potentially buggy/risky** using Pandas, TensorFlow, PyTorch, Hugging Face Transformers, FastAPI, Docker, and automated testing.
 
